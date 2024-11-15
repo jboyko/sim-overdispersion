@@ -54,9 +54,9 @@ random_tip_states <- tip_states[subtree_random$tip.label,]
 
 
 # fit and compare BM models between the two data sets
-fit = fit_and_compare_bm_models(
-  trees1 = subtree_random, 
-  tip_states1     = random_tip_states, 
+fit1 = fit_and_compare_bm_models(
+  trees1 = tree, 
+  tip_states1     = tip_states, 
   
   trees2          = subtree_cluster,
   tip_states2     = cluster_tip_states,
@@ -64,9 +64,22 @@ fit = fit_and_compare_bm_models(
   Nbootstraps     = 100,
   Nsignificance   = 100)
 
+
+fit2 = fit_and_compare_bm_models(
+  trees1 = tree, 
+  tip_states1     = tip_states, 
+  
+  trees2          = subtree_random,
+  tip_states2     = random_tip_states,
+  
+  Nbootstraps     = 100,
+  Nsignificance   = 100)
+
+
 # print summary of results
 cat(sprintf("Fitted D1 = %g, D2 = %g, significance of log-diff. = %g\n",
-  fit$fit1$diffusivity, fit$fit2$diffusivity, fit$significance))
+  fit1$fit1$diffusivity, fit1$fit2$diffusivity, fit1$significance))
 
+cat(sprintf("Fitted D1 = %g, D2 = %g, significance of log-diff. = %g\n",
+  fit2$fit1$diffusivity, fit2$fit2$diffusivity, fit2$significance))
 
-fit$fit1$diffusivity - fit$fit2$diffusivity
