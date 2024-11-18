@@ -1,7 +1,7 @@
 setwd("~/sim-overdispersion/")
 library(castor)
 library(ape)
-library(Rtsne)
+library(umap)
 library(dbscan)
 library(phytools)
 
@@ -18,7 +18,7 @@ tree <- read.tree("trees/squamates_Title_Science2024_ultrametric_constrained.tre
 max_tax <- 350
 n_traits <- 10
 
-single_run <- function(index, max_taxa, n_traits){
+single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1){
   # simulate
   # D <- get_random_diffusivity_matrix(10, degrees=NULL, V=1)
   print("generating data...")
@@ -28,9 +28,12 @@ single_run <- function(index, max_taxa, n_traits){
   rownames(tip_states) <- tree$tip.label
   
   # tsne
-  print("running tnse...")
-  tsne_result <- Rtsne(tip_states, dims = 2, perplexity = 50, verbose = FALSE)
-  reduced_data <- tsne_result$Y
+  print("running umap...")
+  # tsne_result <- Rtsne(tip_states, dims = 2, perplexity = 50, verbose = FALSE)
+  # reduced_data <- tsne_result$Y
+  umap_result <- umap(tip_states, n_neighbors = n_neighbors, min_dist = min_dist, n_components = 2)
+  reduced_data <- umap_result$layout
+  
   
   # hdbscan
   print("clustering data...")
@@ -40,10 +43,14 @@ single_run <- function(index, max_taxa, n_traits){
   
   # visualize
   print("outputing plot...")
-  pdf(file = paste0("plots/cluster_plot_sim_", index, ".pdf"))
+  pdf(file = paste0("plots/cluster_plot_sim_", sprintf("%03d", index), 
+    "_traits", n_traits, 
+    "_taxa", max_taxa, 
+    "_nn", n_neighbors, 
+    "_md", min_dist, ".pdf"))
   par(mfrow=c(1,2))
   plot(reduced_data, col = clusters + 1, pch = 16,
-    xlab = "TSNE Dimension 1", ylab = "TSNE Dimension 2", main = "TSNE Clustering")
+    xlab = "UMAP Dimension 1", ylab = "UMAP Dimension 2", main = "UMAP Clustering")
   # legend("topright", legend = unique(clusters), col = unique(clusters + 1), pch = 16, ncol = 2)
   plot(tree, show.tip.label = FALSE, no.margin = TRUE, direction = "leftwards", type = "fan")
   tiplabels(pch = 16, col = clusters + 1, cex = 0.5, offset = 0.5)
@@ -90,25 +97,144 @@ single_run <- function(index, max_taxa, n_traits){
   }
   
   print("saving results.")
-  saveRDS(fit1, file = paste0("out/fit1_sim", index, ".RDS"))
-  saveRDS(fit2, file = paste0("out/fit2_sim", index, ".RDS"))
-  saveRDS(fit3, file = paste0("out/fit3_sim", index, ".RDS"))
+  saveRDS(fit1, file = paste0("out/fit1_sim_", sprintf("%03d", index), 
+    "_traits", n_traits, 
+    "_taxa", max_taxa, 
+    "_nn", n_neighbors, 
+    "_md", min_dist, ".RDS"))
+  saveRDS(fit2, file = paste0("out/fit2_sim_", sprintf("%03d", index), 
+    "_traits", n_traits, 
+    "_taxa", max_taxa, 
+    "_nn", n_neighbors, 
+    "_md", min_dist, ".RDS"))
+  saveRDS(fit3, file = paste0("out/fit3_sim_", sprintf("%03d", index), 
+    "_traits", n_traits, 
+    "_taxa", max_taxa, 
+    "_nn", n_neighbors, 
+    "_md", min_dist, ".RDS"))
   
   print("summarizing results.")
   clst_full_sig <- unlist(lapply(fit1, "[[", "significance"))
   rndm_full_sig <- unlist(lapply(fit2, "[[", "significance"))
   rndm_clst_sig <- unlist(lapply(fit3, "[[", "significance"))
   
-  clst_est <- do.call(rbind, lapply(fit1, function(x) 
-    data.frame(type = "clst", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper)))
-  rndm_est <- do.call(rbind, lapply(fit2, function(x) 
-    data.frame(type = "rndm", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper)))
-  full_est <- do.call(rbind, lapply(fit1, function(x) 
-    data.frame(type = "rndm", sim_ind = index, est=x$fit1$diffusivity, ci_low=x$fit1$CI95lower, ci_upp=x$fit1$CI95upper)))
+  clst_est <- cbind(do.call(rbind, lapply(fit1, function(x) 
+    data.frame(type = "clst", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper))), sig = clst_full_sig)
+  rndm_est <- cbind(do.call(rbind, lapply(fit2, function(x) 
+    data.frame(type = "rndm", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper))), sig = rndm_full_sig)
+  full_est <- cbind(do.call(rbind, lapply(fit1, function(x) 
+    data.frame(type = "full", sim_ind = index, est=x$fit1$diffusivity, ci_low=x$fit1$CI95lower, ci_upp=x$fit1$CI95upper))), sig = rndm_clst_sig)
   
   sim_est <- rbind(full_est, clst_est, rndm_est)
-  write.csv(sim_est, file = paste0("tables/est_table_", "sim", index, ".csv"), row.names = FALSE)
+  write.csv(sim_est, file = paste0("tables/est_table_", "sim_", sprintf("%03d", index), 
+    "_traits", n_traits, 
+    "_taxa", max_taxa, 
+    "_nn", n_neighbors, 
+    "_md", min_dist, ".csv"), row.names = FALSE)
   print("Done.")
 }
 
-parallel::mclapply(1:100, function(x) single_run(x, 350, 10), mc.cores = 10)
+# parallel::mclapply(1:100, function(x) single_run(x, 350, 10, 15, 0.1), mc.cores = 15)
+
+tables_to_load <- dir("tables/", full.names = TRUE)
+big_table <- data.frame()
+for(i in tables_to_load){
+  big_table <- rbind(big_table, read.csv(i))
+}
+
+# Calculate differences for each trait and simulation
+big_table$delta_est <- NA
+unique_sim_indices <- unique(big_table$sim_ind)
+for (sim in unique_sim_indices) {
+  for (trait in 1:n_traits) {
+    # Extract estimates for the current simulation and trait
+    full_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "full"]
+    rndm_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "rndm"]
+    clst_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "clst"]
+    
+    # Compute differences
+    big_table$delta_est[big_table$sim_ind == sim & big_table$type == "rndm"] <- rndm_est - full_est
+    big_table$delta_est[big_table$sim_ind == sim & big_table$type == "clst"] <- clst_est - full_est
+  }
+}
+
+# Compute density for random and cluster-based subsampling
+rndm_density <- density(diff_data$delta_est[diff_data$type == "rndm"], na.rm = TRUE)
+clst_density <- density(diff_data$delta_est[diff_data$type == "clst"], na.rm = TRUE)
+
+# Plot the densities
+plot(rndm_density, col = "blue", lwd = 2, 
+  xlab = "Difference (Subsample - Full)", 
+  ylab = "Density", 
+  main = "Density of Differences in Rate Estimates",
+  xlim = range(c(rndm_density$x, clst_density$x)),
+  ylim = range(c(rndm_density$y, clst_density$y)))
+lines(clst_density, col = "red", lwd = 2)
+
+# Add a legend
+legend("topright", legend = c("Random", "Cluster-Based"), 
+  col = c("blue", "red"), lwd = 2)
+
+
+# Merge estimates for plotting
+estimates <- merge(
+  subset(big_table, type == "full")[, c("sim_ind", "est")],
+  subset(big_table, type != "full")[, c("sim_ind", "type", "est")],
+  by = c("sim_ind"),
+  suffixes = c("_full", "_subsample")
+)
+
+# Subset for random and cluster subsampling
+rndm_est <- subset(estimates, type == "rndm")
+clst_est <- subset(estimates, type == "clst")
+
+# Scatter plot for random subsampling
+par(mfrow=c(1,2))
+plot(rndm_est$est_full, rndm_est$est_subsample,
+  main = "Random Subsampling vs Full Data",
+  xlab = "Full Data Estimates",
+  ylab = "Random Subsample Estimates",
+  pch = 16, col = "blue")
+abline(0, 1, lty = 2)  # Reference line (y = x)
+
+# Scatter plot for cluster-based subsampling
+plot(clst_est$est_full, clst_est$est_subsample,
+  main = "Cluster-Based Subsampling vs Full Data",
+  xlab = "Full Data Estimates",
+  ylab = "Cluster-Based Subsample Estimates",
+  pch = 16, col = "red")
+abline(0, 1, lty = 2)  # Reference line (y = x)
+
+
+
+# Differences for random and cluster subsampling
+rndm_diffs <- diff_data$delta_est[diff_data$type == "rndm"]
+clst_diffs <- diff_data$delta_est[diff_data$type == "clst"]
+
+# Paired t-tests
+t_test_rndm <- t.test(rndm_diffs, mu = 0, paired = FALSE)
+t_test_clst <- t.test(clst_diffs, mu = 0, paired = FALSE)
+
+# Print results
+t_test_rndm
+t_test_clst
+
+# Wilcoxon signed-rank test
+wilcox_rndm <- wilcox.test(rndm_diffs, mu = 0)
+wilcox_clst <- wilcox.test(clst_diffs, mu = 0)
+
+# Print results
+wilcox_rndm
+wilcox_clst
+
+# Mean and SD for random subsampling
+mean_rndm <- mean(rndm_diffs, na.rm = TRUE)
+sd_rndm <- sd(rndm_diffs, na.rm = TRUE)
+
+# Mean and SD for cluster-based subsampling
+mean_clst <- mean(clst_diffs, na.rm = TRUE)
+sd_clst <- sd(clst_diffs, na.rm = TRUE)
+
+# Print results
+cat("Random Subsampling - Mean:", mean_rndm, "SD:", sd_rndm, "\n")
+cat("Cluster Subsampling - Mean:", mean_clst, "SD:", sd_clst, "\n")
