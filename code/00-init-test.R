@@ -4,6 +4,7 @@ library(ape)
 library(umap)
 library(dbscan)
 library(phytools)
+library(colorspace)
 
 get_weights <- function(tree){
   C = vcv(tree)
@@ -13,6 +14,49 @@ get_weights <- function(tree){
   P =  Q %*% L %*% t(Q)
   return(P)
 }
+
+mean_lab_color <- function(colors) {
+  if (length(colors) == 1) return(colors)  # Single color, no blending
+  col_means <- colMeans(cluster_lab[colors, , drop = FALSE])  # Mean in LAB space
+  RGB(as(col_means, "RGB"))@coords  # Convert back to RGB
+}
+
+paint_tree_branches <- function(tree, tip_colors) {
+  # Convert tip colors to LAB color space
+  unique_colors <- unique(tip_colors)
+  color_lab <- hex2RGB(unique_colors)@coords
+  names(color_lab) <- unique_colors
+  
+  # Initialize branch colors
+  branch_colors <- rep(NA, Nedge(tree))  # One color per edge
+  edge_names <- tree$edge[, 2]  # Node or tip associated with each edge
+  
+  # Assign tip colors
+  for (tip in 1:Ntip(tree)) {
+    tip_label <- tree$tip.label[tip]
+    tip_color <- tip_colors[tip_label]
+    branch_index <- which(edge_names == tip)
+    branch_colors[branch_index] <- tip_color
+  }
+  
+  # Prune tree in postorder traversal
+  internal_nodes <- (Ntip(tree) + 1):(Ntip(tree) + Nnode(tree))  # Internal nodes
+  for (node in rev(internal_nodes)) {
+    descendant_edges <- which(tree$edge[, 1] == node)  # Child edges
+    descendant_colors <- branch_colors[descendant_edges]
+    
+    # Blend colors if multiple descendants have different colors
+    if (length(unique(descendant_colors)) == 1) {
+      branch_colors[which(edge_names == node)] <- unique(descendant_colors)
+    } else {
+      valid_colors <- descendant_colors[!is.na(descendant_colors)]  # Remove NAs
+      blended_color <- mean_lab_color(valid_colors)
+      branch_colors[which(edge_names == node)] <- blended_color
+    }
+  }
+  return(branch_colors)
+}
+
 
 tree <- read.tree("trees/squamates_Title_Science2024_ultrametric_constrained.tre")
 max_tax <- 350
@@ -37,7 +81,7 @@ single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1
   
   # hdbscan
   print("clustering data...")
-  dbscan_result <- dbscan(reduced_data, eps = 1.5, minPts = 10)
+  dbscan_result <- dbscan(reduced_data, eps = .5, minPts = 10)
   clusters <- dbscan_result$cluster
   cluster_sp_list <- split(tree$tip.label, clusters)
   
@@ -48,12 +92,21 @@ single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1
     "_taxa", max_taxa, 
     "_nn", n_neighbors, 
     "_md", min_dist, ".pdf"))
+  num_clusters <- length(unique(clusters))
+  cluster_colors <- hcl.colors(num_clusters, palette = "Dark 3")  # Choose a good categorical palette
+  names(cluster_colors) <- unique(clusters)
+  cluster_lab <- hex2RGB(cluster_colors)@coords
+  centroids <- aggregate(reduced_data, by = list(cluster = clusters), FUN = mean)
   par(mfrow=c(1,2))
-  plot(reduced_data, col = clusters + 1, pch = 16,
+  plot(reduced_data, col = cluster_colors[as.character(clusters)], pch = 16,
     xlab = "UMAP Dimension 1", ylab = "UMAP Dimension 2", main = "UMAP Clustering")
+  text(centroids[, 2], centroids[, 3], labels = centroids$cluster, col = "black", font = 2)
+  # legend("topright", legend = names(cluster_colors), col = cluster_colors, 
+    # pch = 16, ncol = 2, title = "Clusters")
   # legend("topright", legend = unique(clusters), col = unique(clusters + 1), pch = 16, ncol = 2)
+  tip_colors <- cluster_colors[as.character(clusters)]
   plot(tree, show.tip.label = FALSE, no.margin = TRUE, direction = "leftwards", type = "fan")
-  tiplabels(pch = 16, col = clusters + 1, cex = 0.5, offset = 0.5)
+  tiplabels(pch = 16, col = tip_colors, cex = 0.5, offset = 0.5)
   dev.off()
   
   # subsample by cluster
