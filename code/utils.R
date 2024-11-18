@@ -77,7 +77,7 @@ get_file_table <- function(tables_to_load) {
   return(params_df)
 }
 
-single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1, eps = 0.5, minPts = 10){
+single_run <- function(index, max_taxa, n_traits, weight_vector, n_neighbors=15, min_dist = 0.1, eps = 0.5, minPts = 10){
   # simulate
   # D <- get_random_diffusivity_matrix(10, degrees=NULL, V=1)
   print("generating data...")
@@ -137,6 +137,13 @@ single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1
   subtree_random <- keep.tip(tree, subsamples_random)
   random_tip_states <- tip_states[subtree_random$tip.label,]
   
+  # subsample by phylo
+  print("subsample phylogenetiical...")
+  subsamples_phylo <- sample(tree$tip.label, size = Ntip(subtree_cluster), prob = weight_vector)
+  subtree_phylo <- keep.tip(tree, subsamples_phylo)
+  phylo_tip_states <- tip_states[subtree_phylo$tip.label,]
+  
+  
   print("fitting BM models...")
   fit1=fit2=fit3=list()
   for(i in 1:n_traits){
@@ -156,10 +163,10 @@ single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1
       Nbootstraps     = 100,
       Nsignificance   = 100)
     fit3[[i]] = fit_and_compare_bm_models(
-      trees1          = subtree_random, 
-      tip_states1     = random_tip_states[,i], 
-      trees2          = subtree_cluster,
-      tip_states2     = cluster_tip_states[,i],
+      trees1          = tree, 
+      tip_states1     = tip_states[,i], 
+      trees2          = subtree_phylo,
+      tip_states2     = phylo_tip_states[,i],
       Nbootstraps     = 100,
       Nsignificance   = 100)
   }
@@ -190,16 +197,18 @@ single_run <- function(index, max_taxa, n_traits, n_neighbors=15, min_dist = 0.1
   print("summarizing results.")
   clst_full_sig <- unlist(lapply(fit1, "[[", "significance"))
   rndm_full_sig <- unlist(lapply(fit2, "[[", "significance"))
-  rndm_clst_sig <- unlist(lapply(fit3, "[[", "significance"))
+  phyl_full_sig <- unlist(lapply(fit3, "[[", "significance"))
   
   clst_est <- cbind(do.call(rbind, lapply(fit1, function(x) 
     data.frame(type = "clst", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper))), sig = clst_full_sig)
   rndm_est <- cbind(do.call(rbind, lapply(fit2, function(x) 
     data.frame(type = "rndm", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper))), sig = rndm_full_sig)
+  phyl_est <- cbind(do.call(rbind, lapply(fit3, function(x) 
+    data.frame(type = "phyl", sim_ind = index, est=x$fit2$diffusivity, ci_low=x$fit2$CI95lower, ci_upp=x$fit2$CI95upper))), sig = phyl_full_sig)
   full_est <- cbind(do.call(rbind, lapply(fit1, function(x) 
-    data.frame(type = "full", sim_ind = index, est=x$fit1$diffusivity, ci_low=x$fit1$CI95lower, ci_upp=x$fit1$CI95upper))), sig = rndm_clst_sig)
+    data.frame(type = "full", sim_ind = index, est=x$fit1$diffusivity, ci_low=x$fit1$CI95lower, ci_upp=x$fit1$CI95upper))), sig = NA)
   
-  sim_est <- cbind(rbind(full_est, clst_est, rndm_est), num_clusters = num_clusters)
+  sim_est <- cbind(rbind(full_est, clst_est, phyl_est, rndm_est), num_clusters = num_clusters)
   write.csv(sim_est, file = paste0("tables/est_table_", "sim_", sprintf("%03d", index), 
     "_traits", n_traits, 
     "_taxa", max_taxa, 

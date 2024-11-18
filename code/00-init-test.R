@@ -9,6 +9,11 @@ library(colorspace)
 
 
 tree <- read.tree("trees/squamates_Title_Science2024_ultrametric_constrained.tre")
+# tree_weights <- readRDS("trees/weights_squamates_Title_Science2024_ultrametric_constrained.RDS")
+# weight_vector <- c(tree_weights %*% c(rep(1, dim(tree_weights)[1])))
+# write.csv(weights, "trees/weights_squamates_Title_Science2024_ultrametric_constrained.csv", row.names = FALSE)
+weight_vector <- read.csv("trees/weights_squamates_Title_Science2024_ultrametric_constrained.csv")
+weight_vector <- setNames(weight_vector$weights, weight_vector$sp)
 max_tax <- 350
 n_traits <- 10
 
@@ -56,7 +61,7 @@ unique_sim_indices <- unique(big_table$sim_ind)
 for (sim in unique_sim_indices) {
   for (trait in 1:n_traits) {
     # Extract estimates for the current simulation and trait
-    full_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "full"]
+    phyl_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "full"]
     rndm_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "rndm"]
     clst_est <- big_table$est[big_table$sim_ind == sim & big_table$type == "clst"]
     
@@ -112,22 +117,32 @@ for (regime in unique_regimes) {
   rmse_rndm <- sqrt(mean(rndm_diffs^2, na.rm = TRUE))
   rmse_clst <- sqrt(mean(clst_diffs^2, na.rm = TRUE))
   
+  mean_no_clst <- mean(regime_data$num_clusters)
+  sd_no_clst <- sd(regime_data$num_clusters)
+  
+  
   # Store results
   results <- rbind(results, data.frame(
     Regime = regime,
-    Mean_Random = mean_rndm,
-    SD_Random = sd_rndm,
-    RMSE_Random = rmse_rndm,
-    TTest_Random = t_test_rndm$p.value,
-    Wilcox_Random = wilcox_rndm$p.value,
+    Mean_Num_Clust = mean_no_clst,
+    SD_Num_Clust = sd_no_clst,
     
     Mean_Cluster = mean_clst,
     SD_Cluster = sd_clst,
     RMSE_Cluster = rmse_clst,
     TTest_Cluster = t_test_clst$p.value,
-    Wilcox_Cluster = wilcox_clst$p.value
+    Wilcox_Cluster = wilcox_clst$p.value,
+    
+    Mean_Random = mean_rndm,
+    SD_Random = sd_rndm,
+    RMSE_Random = rmse_rndm,
+    TTest_Random = t_test_rndm$p.value,
+    Wilcox_Random = wilcox_rndm$p.value
   ))
 }
 
 # View results
 print(results)
+
+write.csv(results[order(results$Mean_Num_Clust),], file = "prelim-results.csv")
+
